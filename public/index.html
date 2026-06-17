@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nexus Apostas | Apostas Desportivas Virtuais</title>
+  <link rel="icon" type="image/png" href="assets/logo.png">
+  <link rel="stylesheet" href="styles.css">
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+
+  <!-- Screen: Login (Overlay for unauthorized users) -->
+  <div id="login-overlay" class="login-overlay">
+    <div class="login-card">
+      <div class="login-logo-container" style="margin-bottom: 25px;">
+        <span class="betclic-logo-box-large">Nexus</span><span class="logo-text-sub-large">Apostas</span>
+      </div>
+      <p class="login-subtitle">A tua casa de apostas desportivas 100% virtual da comunidade Nexus</p>
+      
+      <div class="login-info-box">
+        <i data-lucide="info" class="info-icon"></i>
+        <span>Esta plataforma utiliza apenas <strong>Euros (€) fictícios</strong>, uma moeda 100% virtual e gratuita. Sem transações financeiras reais.</span>
+      </div>
+
+      <div class="login-buttons">
+        <a href="/auth/discord" id="login-discord-link" class="btn btn-discord">
+          <i data-lucide="chrome" class="btn-icon"></i>
+          Entrar com Discord
+        </a>
+        <div class="divider">
+          <span>OU PARA TESTES</span>
+        </div>
+        <button id="login-mock-btn" class="btn btn-mock btn-full">
+          <i data-lucide="user-cog" class="btn-icon"></i>
+          Simular Conta Discord
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Application Wrapper -->
+  <div id="app-container" class="app-container hidden">
+    
+    <!-- Top Header -->
+    <header class="main-header">
+      <div class="header-left">
+        <button id="toggle-sidebar-btn" class="header-icon-btn mobile-only">
+          <i data-lucide="menu"></i>
+        </button>
+        <div class="logo-area">
+          <span class="betclic-logo-box">Nexus</span><span class="logo-text-sub">Apostas</span>
+        </div>
+      </div>
+      
+      <div class="header-right">
+        <!-- Balance Display -->
+        <div class="user-coins-display" id="user-coins-btn" title="Clica para coletar Euros diários!">
+          <div class="coin-icon-wrapper">
+            <i data-lucide="coins" class="coin-icon"></i>
+          </div>
+          <div class="coin-amount-details">
+            <span class="coin-label">SALDO</span>
+            <span class="coin-value" id="header-balance">0.00 €</span>
+          </div>
+          <button class="coin-plus-btn">
+            <i data-lucide="plus"></i>
+          </button>
+        </div>
+
+        <!-- User profile dropdown / trigger -->
+        <div class="user-profile-widget" id="profile-widget">
+          <img src="https://cdn.discordapp.com/embed/avatars/0.png" alt="Avatar" class="user-avatar" id="header-avatar">
+          <div class="user-meta desktop-only">
+            <span class="user-name" id="header-username">Carregando...</span>
+            <span class="user-level" id="header-level">Nível 1</span>
+          </div>
+          <button id="logout-btn" class="logout-btn" title="Sair da Conta">
+            <i data-lucide="log-out"></i>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content Layout -->
+    <div class="main-layout">
+      
+      <!-- Left Sidebar Navigation -->
+      <aside class="sidebar" id="sidebar">
+        <nav class="sidebar-nav">
+          <div class="nav-group">
+            <span class="nav-group-title">Apostas</span>
+            <a href="#" class="nav-link active" data-screen="sportsbook">
+              <i data-lucide="trophy"></i>
+              <span>Futebol (Sportsbook)</span>
+              <span class="badge badge-live" id="live-count-badge">0</span>
+            </a>
+            <a href="#" class="nav-link" data-screen="bets">
+              <i data-lucide="history"></i>
+              <span>As Minhas Apostas</span>
+            </a>
+          </div>
+
+          <div class="nav-group">
+            <span class="nav-group-title">Comunidade Discord</span>
+            <a href="#" class="nav-link" data-screen="discord-sync">
+              <i data-lucide="refresh-cw"></i>
+              <span>Sincronizar Saldo</span>
+            </a>
+            <a href="#" class="nav-link" data-screen="store">
+              <i data-lucide="shopping-bag"></i>
+              <span>Loja de Cargos</span>
+            </a>
+          </div>
+
+          <div class="nav-group">
+            <span class="nav-group-title">Minha Conta</span>
+            <a href="#" class="nav-link" data-screen="stats">
+              <i data-lucide="bar-chart-3"></i>
+              <span>Estatísticas & Perfil</span>
+            </a>
+          </div>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="discord-promo-card">
+            <i data-lucide="message-square" class="promo-icon"></i>
+            <h4>Ganhar Moedas</h4>
+            <p>Participa no nosso Discord para ganhares mais moedas de atividade!</p>
+            <a href="https://discord.gg/fmqPS7gX" target="_blank" class="btn btn-xs btn-outline">Aceder ao Discord</a>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Main Scrollable Dashboard -->
+      <main class="content-area">
+        
+        <!-- SCREEN 1: Sportsbook (Betting Board) -->
+        <section id="screen-sportsbook" class="dashboard-screen active">
+          <!-- Hero Promo Banner -->
+          <div class="promo-banner">
+            <div class="promo-overlay"></div>
+            <div class="promo-content">
+              <span class="badge badge-gold">MUNDIAL 2026</span>
+              <h1>Campeonato do Mundo FIFA 2026</h1>
+              <p>Os maiores jogos internacionais disputados ao vivo. Coloca as tuas apostas virtuais em tempo real!</p>
+              <div class="promo-actions">
+                <button class="btn btn-sm btn-gold scroll-to-live">Apostar Ao Vivo</button>
+              </div>
+            </div>
+            <div class="promo-gfx">
+              <i data-lucide="sparkles" class="banner-sparkle"></i>
+            </div>
+          </div>
+
+          <!-- Section: Live Games -->
+          <div class="section-container" id="live-section">
+            <div class="section-header">
+              <div class="section-title">
+                <span class="live-dot"></span>
+                <h2>JOGOS AO VIVO</h2>
+              </div>
+              <span class="section-sub">Atualização automática de golos e odds</span>
+            </div>
+
+            <div class="matches-grid" id="live-matches-container">
+              <!-- Dynamically populated live matches -->
+              <div class="match-loading">A carregar jogos em direto...</div>
+            </div>
+          </div>
+
+          <!-- Section: Upcoming Games -->
+          <div class="section-container">
+            <div class="section-header">
+              <div class="section-title">
+                <i data-lucide="calendar" class="section-icon"></i>
+                <h2>PRÓXIMAS PARTIDAS</h2>
+              </div>
+              <span class="section-sub">Pré-match - Odds fixas até ao início do jogo</span>
+            </div>
+
+            <div class="matches-list" id="upcoming-matches-container">
+              <!-- Dynamically populated upcoming matches -->
+              <div class="match-loading">A carregar próximas partidas...</div>
+            </div>
+          </div>
+
+          <!-- Section: Standings & Competitions Info -->
+          <div class="section-container">
+            <div class="section-header">
+              <div class="section-title">
+                <i data-lucide="table" class="section-icon"></i>
+                <h2>CLASSIFICAÇÕES DO MUNDIAL (GRUPOS K & L)</h2>
+              </div>
+            </div>
+
+            <div class="standings-grid">
+              <div class="table-card">
+                <h3>Grupo K</h3>
+                <table class="standings-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Seleção</th>
+                      <th>J</th>
+                      <th>V</th>
+                      <th>E</th>
+                      <th>D</th>
+                      <th>GM</th>
+                      <th>PTS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>1</td><td><strong class="team-bold">Portugal</strong></td><td>1</td><td>1</td><td>0</td><td>0</td><td>1</td><td>3</td></tr>
+                    <tr><td>2</td><td>Colômbia</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
+                    <tr><td>3</td><td>Usbequistão</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
+                    <tr><td>4</td><td>RD Congo</td><td>1</td><td>0</td><td>0</td><td>1</td><td>0</td><td>0</td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="table-card">
+                <h3>Grupo L</h3>
+                <table class="standings-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Seleção</th>
+                      <th>J</th>
+                      <th>V</th>
+                      <th>E</th>
+                      <th>D</th>
+                      <th>GM</th>
+                      <th>PTS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>1</td><td><strong class="team-bold">Inglaterra</strong></td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
+                    <tr><td>2</td><td>Croácia</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
+                    <tr><td>3</td><td>Gana</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
+                    <tr><td>4</td><td>Panamá</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SCREEN 2: My Bets (Bet History) -->
+        <section id="screen-bets" class="dashboard-screen">
+          <div class="section-container">
+            <div class="section-header flex-header">
+              <div>
+                <h2>AS MINHAS APOSTAS</h2>
+                <p>Histórico completo de boletins de aposta registados</p>
+              </div>
+              <div class="filter-tabs" id="bets-filter-tabs">
+                <button class="filter-btn active" data-filter="all">Todas</button>
+                <button class="filter-btn" data-filter="pending">Pendente</button>
+                <button class="filter-btn" data-filter="won">Ganhas</button>
+                <button class="filter-btn" data-filter="lost">Perdidas</button>
+              </div>
+            </div>
+
+            <div class="bets-history-list" id="bets-history-container">
+              <!-- Dynamically populated bets -->
+              <div class="no-data-msg">Nenhuma aposta encontrada.</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SCREEN 3: Discord Sync (Earn coins) -->
+        <section id="screen-discord-sync" class="dashboard-screen">
+          <div class="sync-panel-layout">
+            <div class="sync-info-column">
+              <h2>Sincronização de Euros Discord</h2>
+              <p class="sync-desc">A economia do **Nexus Apostas** baseia-se na tua atividade no servidor do Discord. Quanto mais ativo fores na nossa comunidade, mais Euros virtuais recebes!</p>
+              
+              <div class="sync-activities-list">
+                <div class="activity-row">
+                  <div class="activity-icon"><i data-lucide="message-square"></i></div>
+                  <div class="activity-details">
+                    <h4>Atividade de Chat</h4>
+                    <p>Ganha Euros automaticamente por falar e participar nos canais do Discord.</p>
+                  </div>
+                </div>
+                <div class="activity-row">
+                  <div class="activity-icon"><i data-lucide="calendar-check"></i></div>
+                  <div class="activity-details">
+                    <h4>Múltiplos Eventos</h4>
+                    <p>Bónus atribuídos em giveaways, noites de jogos e competições de comunidade.</p>
+                  </div>
+                </div>
+                <div class="activity-row">
+                  <div class="activity-icon"><i data-lucide="zap"></i></div>
+                  <div class="activity-details">
+                    <h4>Desafios e Missões</h4>
+                    <p>Participa em missões organizadas pelo Staff para obter prémios gigantes de Euros.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="discord-card-invite">
+                <h4>Ainda não pertences ao Servidor?</h4>
+                <p>Junta-te a milhares de membros, conversa sobre futebol e reclama o teu saldo em Euros.</p>
+                <a href="https://discord.gg/fmqPS7gX" target="_blank" class="btn btn-discord-large">
+                  <i data-lucide="message-square"></i> Entrar no Discord da Nexus
+                </a>
+              </div>
+            </div>
+
+            <div class="sync-actions-column">
+              <!-- Claim Daily Reward Widget -->
+              <div class="sync-widget-card claim-daily-card">
+                <div class="widget-header">
+                  <i data-lucide="gift" class="widget-icon"></i>
+                  <h3>Recompensa Diária</h3>
+                </div>
+                <p>Reivindica a tua oferta diária de **+1 €** para aumentares o teu saldo.</p>
+                <div class="claim-action-area">
+                  <button class="btn btn-gold btn-full" id="claim-daily-btn">Recolher +1 €</button>
+                  <span class="cooldown-timer hidden" id="daily-timer">Aguarde 24h...</span>
+                </div>
+              </div>
+
+              <!-- Sync Activity Balance Widget -->
+              <div class="sync-widget-card discord-sync-card">
+                <div class="widget-header">
+                  <i data-lucide="refresh-cw" class="widget-icon"></i>
+                  <h3>Sincronizar Saldo</h3>
+                </div>
+                <p>Importa Euros acumulados a cada 3 dias (+2 €).</p>
+                <div class="claim-action-area">
+                  <button class="btn btn-primary btn-full" id="sync-discord-btn">Sincronizar com Discord</button>
+                  <span class="cooldown-timer hidden" id="sync-timer">Aguarde 3 dias...</span>
+                </div>
+                <p class="sync-note">Nota: A sincronização tem um cooldown de 3 dias para evitar abusos.</p>
+              </div>
+
+              <!-- Redeem Coupon Widget -->
+              <div class="sync-widget-card coupon-card">
+                <div class="widget-header">
+                  <i data-lucide="ticket" class="widget-icon" style="color: var(--primary-blue);"></i>
+                  <h3>Resgatar Cupão</h3>
+                </div>
+                <p>Introduz um código de cupão para receberes saldo adicional de Euros.</p>
+                <div class="claim-action-area" style="display: flex; flex-direction: column; gap: 10px;">
+                  <input type="text" id="coupon-input" class="stake-input" placeholder="Ex: Nexus" style="width: 100%; text-align: center; font-weight: 700; text-transform: uppercase;">
+                  <button class="btn btn-gold btn-full" id="redeem-coupon-btn">Resgatar Cupão</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SCREEN 4: Rewards Store (Redeem Cargos) -->
+        <section id="screen-store" class="dashboard-screen">
+          <div class="section-container">
+            <div class="section-header">
+              <h2>LOJA DE RECOMPENSAS DISCORD</h2>
+              <p>Troca os teus ganhos virtuais de apostas por cargos especiais e prémios no servidor Discord!</p>
+            </div>
+
+            <div class="store-grid" id="store-items-container">
+              <!-- Dynamically populated store items -->
+              <div class="match-loading">A carregar itens da loja...</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SCREEN 5: User Profile & Stats -->
+        <section id="screen-stats" class="dashboard-screen">
+          <div class="profile-layout-container">
+            <div class="profile-header-card">
+              <div class="profile-user-info">
+                <img src="https://cdn.discordapp.com/embed/avatars/0.png" alt="Avatar" class="profile-large-avatar" id="stats-avatar">
+                <div class="profile-user-text">
+                  <h2 id="stats-username">Nome do Utilizador</h2>
+                  <div class="profile-badges" id="stats-badges-container">
+                    <span class="profile-badge badge-member">Membro Discord</span>
+                  </div>
+                  <p class="profile-since">Conta Nexus vinculada em segurança</p>
+                </div>
+              </div>
+              <div class="profile-level-badge">
+                <span class="lvl-number" id="stats-lvl-num">1</span>
+                <span class="lvl-lbl">NÍVEL</span>
+              </div>
+            </div>
+
+            <!-- XP Progress Bar -->
+            <div class="xp-progress-card">
+              <div class="xp-labels">
+                <span>XP Atual: <strong id="stats-xp-value">0</strong> / 100</span>
+                <span id="stats-next-lvl">Próximo Nível: Lvl 2</span>
+              </div>
+              <div class="xp-bar-container">
+                <div class="xp-bar-fill" id="stats-xp-fill" style="width: 0%;"></div>
+              </div>
+              <p class="xp-tip">Ganha XP ao colocar apostas (10% do valor apostado) e ao vencer!</p>
+            </div>
+
+            <!-- Betting Stats Grid -->
+            <div class="stats-summary-grid">
+              <div class="stat-card gold-border">
+                <span class="stat-title">SALDO TOTAL</span>
+                <span class="stat-value text-gold" id="stats-balance-val">0.00 €</span>
+                <i data-lucide="coins" class="stat-bg-icon"></i>
+              </div>
+              <div class="stat-card">
+                <span class="stat-title">APOSTAS GANHAS</span>
+                <span class="stat-value text-green" id="stats-wins-val">0</span>
+                <i data-lucide="trending-up" class="stat-bg-icon"></i>
+              </div>
+              <div class="stat-card">
+                <span class="stat-title">APOSTAS PERDIDAS</span>
+                <span class="stat-value text-red" id="stats-losses-val">0</span>
+                <i data-lucide="trending-down" class="stat-bg-icon"></i>
+              </div>
+              <div class="stat-card">
+                <span class="stat-title">TAXA DE VITÓRIA</span>
+                <span class="stat-value" id="stats-winrate-val">0%</span>
+                <i data-lucide="percent" class="stat-bg-icon"></i>
+              </div>
+            </div>
+
+            <!-- Transaction History -->
+            <div class="transactions-container">
+              <h3>Histórico de Transações</h3>
+              <div class="tx-list" id="profile-tx-container">
+                <!-- Dynamically populated transactions -->
+                <div class="no-data-msg">Nenhuma transação registada.</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </main>
+
+      <!-- Right Panel: Bet Slip (Boletim de Apostas) -->
+      <aside class="bet-slip-panel" id="bet-slip">
+        <div class="slip-header">
+          <div class="slip-title-area">
+            <i data-lucide="scroll"></i>
+            <h3>BOLETIM DE APOSTAS</h3>
+          </div>
+          <span class="selections-count-badge" id="slip-count">0</span>
+        </div>
+
+        <div class="slip-body">
+          <div class="no-selection-state" id="slip-empty-state">
+            <div class="empty-icon-wrapper">
+              <i data-lucide="mouse-pointer-click"></i>
+            </div>
+            <h4>Sem Seleções</h4>
+            <p>Clica nas odds das equipas de futebol para começares a preencher o teu boletim de aposta.</p>
+          </div>
+
+          <!-- Dynamic Active Selections -->
+          <div class="active-selections" id="slip-selections-container">
+            <!-- Populated via Javascript -->
+          </div>
+        </div>
+
+        <div class="slip-footer hidden" id="slip-footer-panel">
+          <div class="stake-input-card">
+            <div class="stake-label-row">
+              <span>Montante a Apostar (€):</span>
+              <span class="max-bet-link" id="slip-max-bet">Apostar Max</span>
+            </div>
+            <div class="stake-input-row">
+              <input type="number" id="bet-stake-input" class="stake-input" placeholder="Ex: 10" min="1">
+              <span class="stake-currency">€</span>
+            </div>
+          </div>
+
+          <div class="return-calculation">
+            <div class="calc-row">
+              <span>Cota Total (Odd):</span>
+              <span class="odd-total-val" id="slip-odd-total">0.00</span>
+            </div>
+            <div class="calc-row highlighted">
+              <span>Ganhos Possíveis:</span>
+              <span class="potential-win-val" id="slip-potential-win">0.00 €</span>
+            </div>
+          </div>
+
+          <button class="btn btn-gold btn-full btn-place-bet" id="place-bet-btn">
+            Submeter Aposta Fictícia
+          </button>
+        </div>
+      </aside>
+
+    </div>
+  </div>
+
+  <!-- Dynamic Win Celebration Modal -->
+  <div id="win-modal" class="win-modal-overlay hidden">
+    <div class="win-modal-card">
+      <div class="trophy-sparkle-container">
+        <i data-lucide="award" class="win-trophy-icon"></i>
+      </div>
+      <h2>APOSTA GANHA!</h2>
+      <p class="win-match-name" id="win-modal-match">Portugal vs. RD Congo</p>
+      <p class="win-selection-name" id="win-modal-selection">Aposta: Portugal (Odd: 1.25)</p>
+      
+      <div class="win-payout-box">
+        <span class="payout-lbl">Retorno de Euros</span>
+        <span class="payout-val" id="win-modal-amount">+500.00 €</span>
+      </div>
+
+      <button class="btn btn-gold" id="close-win-modal-btn">Incrível!</button>
+    </div>
+  </div>
+
+  <!-- Notification Toast Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Application Logic -->
+  <script src="app.js"></script>
+
+</body>
+</html>

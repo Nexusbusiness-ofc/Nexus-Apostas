@@ -1,0 +1,4 @@
+node_modules/
+node-portable/
+.env
+db.json
