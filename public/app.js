@@ -1033,6 +1033,19 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     document.addEventListener('click', (event) => {
+      const oddButton = event.target.closest('.odd-btn[data-bet-match]');
+      if (oddButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        selectBet(
+          oddButton.dataset.betMatch,
+          oddButton.dataset.betType,
+          oddButton.dataset.betName,
+          Number(oddButton.dataset.betOdd)
+        );
+        return;
+      }
+
       const lineupButton = event.target.closest('.lineup-toggle-btn');
       if (lineupButton) {
         event.preventDefault();
@@ -1093,6 +1106,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Logout
     document.getElementById('logout-btn').addEventListener('click', logout);
+
+    const mobileSlipBackdrop = document.getElementById('mobile-slip-backdrop');
+    if (mobileSlipBackdrop) {
+      mobileSlipBackdrop.addEventListener('click', closeMobileBetSlip);
+    }
 
     // Bet slip stake input keyups
     const stakeInput = document.getElementById('bet-stake-input');
@@ -1365,15 +1383,15 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
 
             <div class="odds-box">
-              <button class="odd-btn ${isHomeSelected ? 'active' : ''}" id="btn-odd-${m.id}-win_home" onclick="selectBet('${m.id}', '1', '${m.home_team}', ${m.odds.win_home})">
+              <button class="odd-btn ${isHomeSelected ? 'active' : ''}" id="btn-odd-${m.id}-win_home" data-bet-match="${escapeHtml(m.id)}" data-bet-type="1" data-bet-name="${escapeHtml(m.home_team)}" data-bet-odd="${m.odds.win_home}">
                 <span class="odd-label">1</span>
                 <span class="odd-val">${m.odds.win_home.toFixed(2)}</span>
               </button>
-              <button class="odd-btn ${isDrawSelected ? 'active' : ''}" id="btn-odd-${m.id}-draw" onclick="selectBet('${m.id}', 'X', 'Empate', ${m.odds.draw})">
+              <button class="odd-btn ${isDrawSelected ? 'active' : ''}" id="btn-odd-${m.id}-draw" data-bet-match="${escapeHtml(m.id)}" data-bet-type="X" data-bet-name="Empate" data-bet-odd="${m.odds.draw}">
                 <span class="odd-label">X</span>
                 <span class="odd-val">${m.odds.draw.toFixed(2)}</span>
               </button>
-              <button class="odd-btn ${isAwaySelected ? 'active' : ''}" id="btn-odd-${m.id}-win_away" onclick="selectBet('${m.id}', '2', '${m.away_team}', ${m.odds.win_away})">
+              <button class="odd-btn ${isAwaySelected ? 'active' : ''}" id="btn-odd-${m.id}-win_away" data-bet-match="${escapeHtml(m.id)}" data-bet-type="2" data-bet-name="${escapeHtml(m.away_team)}" data-bet-odd="${m.odds.win_away}">
                 <span class="odd-label">2</span>
                 <span class="odd-val">${m.odds.win_away.toFixed(2)}</span>
               </button>
@@ -1440,15 +1458,15 @@ document.addEventListener('DOMContentLoaded', () => {
               </div>
 
               <div class="odds-box">
-                <button class="odd-btn ${isHomeSelected ? 'active' : ''}" id="btn-odd-${m.id}-win_home" onclick="selectBet('${m.id}', '1', '${m.home_team}', ${m.odds.win_home})">
+                <button class="odd-btn ${isHomeSelected ? 'active' : ''}" id="btn-odd-${m.id}-win_home" data-bet-match="${escapeHtml(m.id)}" data-bet-type="1" data-bet-name="${escapeHtml(m.home_team)}" data-bet-odd="${m.odds.win_home}">
                   <span class="odd-label">1</span>
                   <span class="odd-val">${m.odds.win_home.toFixed(2)}</span>
                 </button>
-                <button class="odd-btn ${isDrawSelected ? 'active' : ''}" id="btn-odd-${m.id}-draw" onclick="selectBet('${m.id}', 'X', 'Empate', ${m.odds.draw})">
+                <button class="odd-btn ${isDrawSelected ? 'active' : ''}" id="btn-odd-${m.id}-draw" data-bet-match="${escapeHtml(m.id)}" data-bet-type="X" data-bet-name="Empate" data-bet-odd="${m.odds.draw}">
                   <span class="odd-label">X</span>
                   <span class="odd-val">${m.odds.draw.toFixed(2)}</span>
                 </button>
-                <button class="odd-btn ${isAwaySelected ? 'active' : ''}" id="btn-odd-${m.id}-win_away" onclick="selectBet('${m.id}', '2', '${m.away_team}', ${m.odds.win_away})">
+                <button class="odd-btn ${isAwaySelected ? 'active' : ''}" id="btn-odd-${m.id}-win_away" data-bet-match="${escapeHtml(m.id)}" data-bet-type="2" data-bet-name="${escapeHtml(m.away_team)}" data-bet-odd="${m.odds.win_away}">
                   <span class="odd-label">2</span>
                   <span class="odd-val">${m.odds.win_away.toFixed(2)}</span>
                 </button>
@@ -1603,9 +1621,23 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Auto-scroll to Bet Slip on small screens
     if (window.innerWidth <= 1080) {
+      openMobileBetSlip();
       showToast(`Adicionado ao Boletim: ${selectionName} @ ${odd.toFixed(2)}`, 'info');
     }
   };
+
+  function openMobileBetSlip() {
+    if (window.innerWidth > 1080) return;
+    document.getElementById('bet-slip')?.classList.add('mobile-open');
+    document.getElementById('mobile-slip-backdrop')?.classList.add('active');
+    document.body.classList.add('mobile-slip-active');
+  }
+
+  function closeMobileBetSlip() {
+    document.getElementById('bet-slip')?.classList.remove('mobile-open');
+    document.getElementById('mobile-slip-backdrop')?.classList.remove('active');
+    document.body.classList.remove('mobile-slip-active');
+  }
 
   window.selectScorerBet = function(matchId, scorerId, playerName, playerLabel, teamName, teamId, odd) {
     const displayName = playerLabel || getPlayerDisplayName(playerName);
@@ -1650,6 +1682,7 @@ document.addEventListener('DOMContentLoaded', () => {
     state.activeSelection = null;
     renderBetSlip();
     renderMatches();
+    closeMobileBetSlip();
   };
 
   // 6. Bet Slip Calculations
@@ -1784,6 +1817,7 @@ document.addEventListener('DOMContentLoaded', () => {
       showToast('Aposta fictícia colocada offline!', 'success');
       state.activeSelection = null;
       stakeInput.value = '';
+      closeMobileBetSlip();
 
       updateHeaderUI();
       renderBetSlip();
@@ -1817,6 +1851,7 @@ document.addEventListener('DOMContentLoaded', () => {
         showToast('Aposta fictícia colocada com sucesso!', 'success');
         state.activeSelection = null;
         stakeInput.value = '';
+        closeMobileBetSlip();
         
         checkAuthStatus();
         renderBetSlip();
