@@ -741,14 +741,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Discord link click (implicit grant flow for static mode)
     document.getElementById('login-discord-link').addEventListener('click', (e) => {
+      e.preventDefault();
       if (state.isLocalMode) {
-        e.preventDefault();
         const clientId = localStorage.getItem('discord_client_id');
         if (clientId) {
           redirectToDiscordOAuth(clientId);
         } else {
           showDiscordClientIdModal();
         }
+      } else {
+        window.location.href = '/auth/discord';
       }
     });
 
