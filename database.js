@@ -135,7 +135,7 @@ const db = {
     return data.bets.filter(b => b.match_id === matchId);
   },
 
-  async createBet({ user_id, match_id, type, selectionName, odd, amount, potential_win }) {
+  async createBet({ user_id, match_id, type, selectionName, odd, amount, potential_win, scorerId = null, scorerName = null, scorerTeamId = null, scorerTeam = null }) {
     const nextId = data.bets.length > 0 ? Math.max(...data.bets.map(b => b.id)) + 1 : 1;
     const newBet = {
       id: nextId,
@@ -146,6 +146,10 @@ const db = {
       odd: parseFloat(odd),
       amount: parseInt(amount),
       potential_win: parseFloat(potential_win),
+      scorerId,
+      scorerName,
+      scorerTeamId,
+      scorerTeam,
       status: 'pending',
       created_at: new Date().toISOString(),
       settled_at: null

@@ -5,6 +5,7 @@
 document.addEventListener('DOMContentLoaded', () => {
   const DISCORD_CLIENT_ID = '1504934174878994482';
   const DISCORD_STATE_KEY = 'nexus_discord_oauth_state';
+  const ROSTER_CACHE_KEY = 'nexus_espn_roster_cache';
 
   // --- APPLICATION STATE ---
   let state = {
@@ -515,11 +516,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const url = getWorldCupScoreboardUrl();
     
     // Attempt 0: direct ESPN request. Some browsers allow it; if not, proxies below are used.
+    return await fetchJsonWithCorsFallback(url, processESPNScoreboard);
+  }
+
+  async function fetchJsonWithCorsFallback(url, mapper = (json) => json) {
     try {
       const response = await fetch(url, { cache: 'no-store' });
       if (response.ok) {
         const json = await response.json();
-        return processESPNScoreboard(json);
+        return await mapper(json);
       }
     } catch (e) {
       console.warn('Pedido direto ESPN falhou, a tentar proxies CORS...');
@@ -530,7 +535,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const response = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`);
       if (response.ok) {
         const json = await response.json();
-        return processESPNScoreboard(json);
+        return await mapper(json);
       }
     } catch (e) {
       console.warn('corsproxy.io falhou, a tentar allorigins...');
@@ -541,13 +546,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const response = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`);
       if (response.ok) {
         const json = await response.json();
-        return processESPNScoreboard(json);
+        return await mapper(json);
       }
     } catch (e) {
       console.warn('allorigins.win falhou.');
     }
     
-    throw new Error('Todos os proxies CORS falharam.');
+    throw new Error('Todos os pedidos Ã ESPN falharam.');
   }
 
   function getWorldCupScoreboardUrl() {
@@ -568,7 +573,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=${range}&limit=500&_=${Date.now()}`;
   }
 
-  function processESPNScoreboard(json) {
+  async function processESPNScoreboard(json) {
     const events = json.events || [];
     const competitionName = json.leagues && json.leagues[0] ? json.leagues[0].name : 'FIFA World Cup';
     
@@ -586,6 +591,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const homeTeam = homeCompetitor.team.displayName;
       const awayTeam = awayCompetitor.team.displayName;
+      const homeTeamId = homeCompetitor.team.id;
+      const awayTeamId = awayCompetitor.team.id;
       const homeLogo = homeCompetitor.team.logo || 'https://flagsapi.com/US/flat/64.png';
       const awayLogo = awayCompetitor.team.logo || 'https://flagsapi.com/US/flat/64.png';
 
@@ -602,6 +609,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const minute = getESPNMatchMinute(event.status, status);
 
       const existing = localMatches.find(m => m.id === matchId);
+      const existingScorers = existing?.goal_scorers || [];
+      const goalScorers = scoreHome + scoreAway > 0 ? existingScorers : [];
       let baseOdds = existing ? existing.baseOdds || existing.odds : null;
       if (!baseOdds) {
         const homeStrength = 1.2 + Math.random() * 2;
@@ -622,6 +631,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const matchObj = {
         id: matchId,
+        espn_event_id: event.id,
+        home_team_id: homeTeamId,
+        away_team_id: awayTeamId,
         home_team: homeTeam,
         away_team: awayTeam,
         home_logo: homeLogo,
@@ -635,15 +647,21 @@ document.addEventListener('DOMContentLoaded', () => {
         date: event.date.split('T')[0],
         time: event.date.split('T')[1].slice(0, 5),
         baseOdds: baseOdds,
-        odds: odds
+        odds: odds,
+        goal_scorers: goalScorers,
+        scorer_markets: existing?.scorer_markets || {
+          home: buildFallbackScorerMarkets(homeTeamId, homeTeam),
+          away: buildFallbackScorerMarkets(awayTeamId, awayTeam)
+        }
       };
 
       updatedMatches.push(matchObj);
-      
-      // Settle local bets if finished and was pending
-      if (status === 'finished' && existing && existing.status !== 'finished') {
-        settleLocalBetsForMatch(matchId, scoreHome, scoreAway);
-      }
+    });
+
+    await enrichMatchesWithScorers(updatedMatches);
+
+    updatedMatches.forEach(match => {
+      settleLocalBetsForMatch(match.id, match.score_home, match.score_away, match.goal_scorers || [], match.status);
     });
 
     localStorage.setItem('nexus_matches', JSON.stringify(updatedMatches));
@@ -668,6 +686,140 @@ document.addEventListener('DOMContentLoaded', () => {
     return 45;
   }
 
+  async function enrichMatchesWithScorers(matches) {
+    const teamIds = [...new Set(matches.flatMap(match => [match.home_team_id, match.away_team_id]).filter(Boolean))];
+    const rosterEntries = await Promise.all(teamIds.map(async teamId => [teamId, await fetchTeamScorerOptions(teamId)]));
+    const rosterByTeam = Object.fromEntries(rosterEntries);
+
+    matches.forEach(match => {
+      const homeOptions = rosterByTeam[match.home_team_id] || match.scorer_markets?.home || [];
+      const awayOptions = rosterByTeam[match.away_team_id] || match.scorer_markets?.away || [];
+      match.scorer_markets = {
+        home: homeOptions.slice(0, 6),
+        away: awayOptions.slice(0, 6)
+      };
+    });
+
+    const matchesNeedingGoals = matches.filter(match => {
+      const totalGoals = Number(match.score_home || 0) + Number(match.score_away || 0);
+      return totalGoals > 0 && match.espn_event_id;
+    });
+
+    await Promise.all(matchesNeedingGoals.map(async match => {
+      const scorers = await fetchMatchGoalScorers(match.espn_event_id);
+      if (scorers.length) {
+        match.goal_scorers = scorers;
+      }
+    }));
+  }
+
+  async function fetchTeamScorerOptions(teamId) {
+    const cache = JSON.parse(localStorage.getItem(ROSTER_CACHE_KEY) || '{}');
+    const cached = cache[teamId];
+    const oneDay = 24 * 60 * 60 * 1000;
+    if (cached && Date.now() - cached.fetchedAt < oneDay) {
+      return cached.players;
+    }
+
+    try {
+      const json = await fetchJsonWithCorsFallback(`https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/teams/${teamId}/roster`);
+      const players = (json.athletes || [])
+        .filter(player => !isGoalkeeper(player))
+        .map(player => ({
+          id: String(player.id),
+          name: player.displayName || player.fullName,
+          shortName: player.shortName || player.displayName || player.fullName,
+          position: player.position?.abbreviation || player.position?.name || '',
+          odd: getScorerOdd(player.position?.abbreviation || player.position?.name || '')
+        }))
+        .filter(player => player.name)
+        .sort((a, b) => getPositionPriority(a.position) - getPositionPriority(b.position));
+
+      cache[teamId] = { fetchedAt: Date.now(), players };
+      localStorage.setItem(ROSTER_CACHE_KEY, JSON.stringify(cache));
+      return players;
+    } catch (error) {
+      console.warn(`Falha ao obter plantel ESPN da equipa ${teamId}:`, error.message);
+      return [];
+    }
+  }
+
+  async function fetchMatchGoalScorers(eventId) {
+    try {
+      const json = await fetchJsonWithCorsFallback(`https://site.web.api.espn.com/apis/site/v2/sports/soccer/fifa.world/summary?event=${eventId}&_=${Date.now()}`);
+      return (json.keyEvents || [])
+        .filter(event => event.scoringPlay || /goal/i.test(event.type?.text || ''))
+        .map(event => {
+          const name = extractScorerName(event.text || '');
+          if (!name) return null;
+          return {
+            name,
+            normalizedName: normalizeName(name),
+            teamId: event.team?.id ? String(event.team.id) : '',
+            teamName: event.team?.displayName || '',
+            minute: event.clock?.displayValue || ''
+          };
+        })
+        .filter(Boolean);
+    } catch (error) {
+      console.warn(`Falha ao obter marcadores reais ESPN do jogo ${eventId}:`, error.message);
+      return [];
+    }
+  }
+
+  function extractScorerName(text) {
+    const match = text.match(/Goal!\s.*?\.\s([^(.]+?)\s\(/i);
+    return match ? match[1].trim() : '';
+  }
+
+  function buildFallbackScorerMarkets(teamId, teamName) {
+    return [
+      { id: `${teamId}-player-1`, name: `${teamName} - Avancado`, shortName: 'Avancado', position: 'F', odd: 4.5 },
+      { id: `${teamId}-player-2`, name: `${teamName} - Medio`, shortName: 'Medio', position: 'M', odd: 6.5 }
+    ];
+  }
+
+  function isGoalkeeper(player) {
+    const abbreviation = String(player.position?.abbreviation || '').toUpperCase();
+    const name = String(player.position?.name || '').toLowerCase();
+    return abbreviation === 'G' || abbreviation === 'GK' || name.includes('goalkeeper') || name.includes('keeper');
+  }
+
+  function getPositionPriority(position) {
+    const value = String(position).toUpperCase();
+    if (value.includes('F') || value.includes('FORWARD') || value.includes('ATTACKER')) return 0;
+    if (value.includes('M') || value.includes('MID')) return 1;
+    if (value.includes('D') || value.includes('DEF')) return 2;
+    return 3;
+  }
+
+  function getScorerOdd(position) {
+    const priority = getPositionPriority(position);
+    if (priority === 0) return 4.25;
+    if (priority === 1) return 6.5;
+    if (priority === 2) return 10.0;
+    return 8.0;
+  }
+
+  function normalizeName(name) {
+    return String(name || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9\s-]/gi, '')
+      .toLowerCase()
+      .trim();
+  }
+
+  function namesMatch(a, b) {
+    const first = normalizeName(a);
+    const second = normalizeName(b);
+    return first === second || first.includes(second) || second.includes(first);
+  }
+
+  function jsString(value) {
+    return JSON.stringify(String(value || ''));
+  }
+
   function calculateLiveOddsLocal(scoreHome, scoreAway, minute, baseOdds) {
     const timeRemainingFactor = Math.max(0, (90 - minute) / 90);
     let odds = { ...baseOdds };
@@ -689,7 +841,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return odds;
   }
 
-  function settleLocalBetsForMatch(matchId, scoreHome, scoreAway) {
+  function settleLocalBetsForMatch(matchId, scoreHome, scoreAway, goalScorers = [], matchStatus = 'scheduled') {
     let localBets = JSON.parse(localStorage.getItem('nexus_bets') || '[]');
     let localUser = JSON.parse(localStorage.getItem('nexus_user'));
     let localTxs = JSON.parse(localStorage.getItem('nexus_transactions') || '[]');
@@ -697,10 +849,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const matchBets = localBets.filter(b => b.match_id === matchId && b.status === 'pending');
     matchBets.forEach(bet => {
+      let isSettled = matchStatus === 'finished';
       let isWin = false;
-      if (bet.type === '1' && scoreHome > scoreAway) isWin = true;
-      else if (bet.type === 'X' && scoreHome === scoreAway) isWin = true;
-      else if (bet.type === '2' && scoreHome < scoreAway) isWin = true;
+
+      if (bet.type === '1' && matchStatus === 'finished') isWin = scoreHome > scoreAway;
+      else if (bet.type === 'X' && matchStatus === 'finished') isWin = scoreHome === scoreAway;
+      else if (bet.type === '2' && matchStatus === 'finished') isWin = scoreHome < scoreAway;
+      else if (bet.type === 'scorer') {
+        const scored = goalScorers.some(scorer =>
+          namesMatch(scorer.name, bet.scorerName) &&
+          (!bet.scorerTeamId || String(scorer.teamId) === String(bet.scorerTeamId))
+        );
+        isWin = scored;
+        isSettled = scored || matchStatus === 'finished';
+      }
+
+      if (!isSettled) return;
 
       const idx = localBets.findIndex(b => b.id === bet.id);
       if (idx !== -1) {
@@ -1130,6 +1294,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <span class="odd-val">${m.odds.win_away.toFixed(2)}</span>
               </button>
             </div>
+            ${renderScorerMarket(m)}
           </div>
         `;
       }).join('');
@@ -1204,6 +1369,7 @@ document.addEventListener('DOMContentLoaded', () => {
                   <span class="odd-val">${m.odds.win_away.toFixed(2)}</span>
                 </button>
               </div>
+              ${renderScorerMarket(m)}
             </div>
           `;
         }).join('');
@@ -1225,7 +1391,52 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  window.selectBet = function(matchId, betType, selectionName, odd) {
+  function renderScorerMarket(match) {
+    const homePlayers = match.scorer_markets?.home || [];
+    const awayPlayers = match.scorer_markets?.away || [];
+    if (!homePlayers.length && !awayPlayers.length) return '';
+
+    const renderPlayerButton = (player, teamName, teamId) => {
+      const isSelected =
+        state.activeSelection &&
+        state.activeSelection.matchId === match.id &&
+        state.activeSelection.betType === 'scorer' &&
+        state.activeSelection.scorerId === player.id;
+
+      return `
+        <button class="scorer-btn ${isSelected ? 'active' : ''}" type="button"
+          onclick="selectScorerBet(${jsString(match.id)}, ${jsString(player.id)}, ${jsString(player.name)}, ${jsString(teamName)}, ${jsString(teamId)}, ${Number(player.odd).toFixed(2)})">
+          <span class="scorer-name">${player.shortName || player.name}</span>
+          <span class="scorer-odd">${Number(player.odd).toFixed(2)}</span>
+        </button>
+      `;
+    };
+
+    return `
+      <div class="scorer-market">
+        <div class="market-title">
+          <i data-lucide="target"></i>
+          <span>Marcador em qualquer momento</span>
+        </div>
+        <div class="scorer-columns">
+          <div class="scorer-team">
+            <span class="scorer-team-name">${match.home_team}</span>
+            <div class="scorer-list">
+              ${homePlayers.map(player => renderPlayerButton(player, match.home_team, match.home_team_id)).join('')}
+            </div>
+          </div>
+          <div class="scorer-team">
+            <span class="scorer-team-name">${match.away_team}</span>
+            <div class="scorer-list">
+              ${awayPlayers.map(player => renderPlayerButton(player, match.away_team, match.away_team_id)).join('')}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  window.selectBet = function(matchId, betType, selectionName, odd, extra = {}) {
     if (!state.user) {
       showToast('Liga a tua conta Discord para começar a apostar!', 'info');
       return;
@@ -1237,7 +1448,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Toggle off if clicking the same active selection
     if (state.activeSelection && 
         state.activeSelection.matchId === matchId && 
-        state.activeSelection.betType === betType) {
+        state.activeSelection.betType === betType &&
+        state.activeSelection.selectionName === selectionName) {
       state.activeSelection = null;
       renderBetSlip();
       renderMatches();
@@ -1250,7 +1462,8 @@ document.addEventListener('DOMContentLoaded', () => {
       selectionName,
       odd,
       homeTeam: match.home_team,
-      awayTeam: match.away_team
+      awayTeam: match.away_team,
+      ...extra
     };
 
     renderBetSlip();
@@ -1260,6 +1473,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if (window.innerWidth <= 1080) {
       showToast(`Adicionado ao Boletim: ${selectionName} @ ${odd.toFixed(2)}`, 'info');
     }
+  };
+
+  window.selectScorerBet = function(matchId, scorerId, playerName, teamName, teamId, odd) {
+    selectBet(matchId, 'scorer', playerName, Number(odd), {
+      scorerId,
+      scorerName: playerName,
+      scorerTeam: teamName,
+      scorerTeamId: teamId,
+      marketLabel: `Marcador: ${playerName}`
+    });
   };
 
   window.clearSelection = function() {
@@ -1287,12 +1510,16 @@ document.addEventListener('DOMContentLoaded', () => {
     slipEmpty.classList.add('hidden');
     slipFooter.classList.remove('hidden');
 
+    const marketLabel = state.activeSelection.marketLabel || `Resultado: ${state.activeSelection.selectionName}`;
+    const teamHint = state.activeSelection.betType === 'scorer' ? `<div class="sel-market-hint">${state.activeSelection.scorerTeam}</div>` : '';
+
     slipContainer.innerHTML = `
       <div class="selection-card">
         <button class="btn-remove-selection" onclick="clearSelection()">
           <i data-lucide="x"></i>
         </button>
         <div class="sel-match-title">${state.activeSelection.homeTeam} vs ${state.activeSelection.awayTeam}</div>
+        ${teamHint}
         <div class="sel-bet-row">
           <span class="sel-name">Resultado Fictício: ${state.activeSelection.selectionName}</span>
           <span class="sel-odd">${state.activeSelection.odd.toFixed(2)}</span>
@@ -1300,6 +1527,7 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
     `;
 
+    slipContainer.querySelector('.sel-name').textContent = marketLabel;
     initIcons();
     updatePotentialWin();
   }
@@ -1313,6 +1541,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (state.activeSelection.betType === '1') freshOdd = match.odds.win_home;
     else if (state.activeSelection.betType === 'X') freshOdd = match.odds.draw;
     else if (state.activeSelection.betType === '2') freshOdd = match.odds.win_away;
+    else if (state.activeSelection.betType === 'scorer') {
+      const players = [...(match.scorer_markets?.home || []), ...(match.scorer_markets?.away || [])];
+      const player = players.find(item => item.id === state.activeSelection.scorerId);
+      if (player) freshOdd = Number(player.odd);
+    }
 
     if (freshOdd !== state.activeSelection.odd) {
       state.activeSelection.odd = freshOdd;
@@ -1370,6 +1603,10 @@ document.addEventListener('DOMContentLoaded', () => {
         odd: state.activeSelection.odd,
         amount: stake,
         potential_win: stake * state.activeSelection.odd,
+        scorerId: state.activeSelection.scorerId || null,
+        scorerName: state.activeSelection.scorerName || null,
+        scorerTeamId: state.activeSelection.scorerTeamId || null,
+        scorerTeam: state.activeSelection.scorerTeam || null,
         status: 'pending',
         created_at: new Date().toISOString(),
         settled_at: null
@@ -1405,7 +1642,11 @@ document.addEventListener('DOMContentLoaded', () => {
             betType: state.activeSelection.betType,
             selectionName: `${state.activeSelection.homeTeam} vs ${state.activeSelection.awayTeam} - ${state.activeSelection.selectionName}`,
             odd: state.activeSelection.odd,
-            amount: stake
+            amount: stake,
+            scorerId: state.activeSelection.scorerId || null,
+            scorerName: state.activeSelection.scorerName || null,
+            scorerTeamId: state.activeSelection.scorerTeamId || null,
+            scorerTeam: state.activeSelection.scorerTeam || null
           })
         });
 

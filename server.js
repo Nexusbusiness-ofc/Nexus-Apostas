@@ -313,7 +313,7 @@ app.get('/api/bets', requireAuth, async (req, res) => {
 
 // POST: Place a bet
 app.post('/api/bets/place', requireAuth, async (req, res) => {
-  const { matchId, betType, selectionName, odd, amount } = req.body;
+  const { matchId, betType, selectionName, odd, amount, scorerId, scorerName, scorerTeamId, scorerTeam } = req.body;
 
   if (!matchId || !betType || !selectionName || !odd || !amount) {
     return res.status(400).json({ error: 'Faltam dados obrigatórios para a aposta' });
@@ -340,7 +340,11 @@ app.post('/api/bets/place', requireAuth, async (req, res) => {
       selectionName,
       odd,
       amount: intAmount,
-      potential_win
+      potential_win,
+      scorerId,
+      scorerName,
+      scorerTeamId,
+      scorerTeam
     });
 
     return res.json({ success: true, bet: newBet });
@@ -531,6 +535,8 @@ function startLiveSimulator() {
         const pendingBets = bets.filter(b => b.status === 'pending');
 
         for (const bet of pendingBets) {
+          if (bet.type === 'scorer') continue;
+
           let betResult = 'lost';
 
           if (bet.type === '1' && scoreHome > scoreAway) betResult = 'won';
@@ -769,6 +775,8 @@ async function syncESPNMatches() {
           const pendingBets = bets.filter(b => b.status === 'pending');
 
           for (const bet of pendingBets) {
+            if (bet.type === 'scorer') continue;
+
             let betResult = 'lost';
             if (bet.type === '1' && scoreHome > scoreAway) betResult = 'won';
             else if (bet.type === 'X' && scoreHome === scoreAway) betResult = 'won';
