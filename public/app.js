@@ -162,6 +162,9 @@ document.addEventListener('DOMContentLoaded', () => {
   async function init() {
     initIcons();
 
+    // Handle hash callback if present (Discord Client-side OAuth)
+    await handleDiscordCallbackHash();
+
     // 1. Detect environment
     if (window.location.protocol === 'file:') {
       state.isLocalMode = true;
@@ -231,6 +234,27 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('[NEXUS APOSTAS] A correr em Modo Local/Offline (LocalStorage)');
     showToast('A correr em Modo Local Offline (Sem Servidor)', 'info');
 
+    // Add Discord Configuration link under the login button in Local Mode
+    const loginButtons = document.querySelector('.login-buttons');
+    if (loginButtons && !document.getElementById('discord-config-link')) {
+      const configLink = document.createElement('a');
+      configLink.id = 'discord-config-link';
+      configLink.href = '#';
+      configLink.className = 'login-config-link';
+      configLink.style.display = 'block';
+      configLink.style.textAlign = 'center';
+      configLink.style.fontSize = '0.8rem';
+      configLink.style.marginTop = '10px';
+      configLink.style.color = 'var(--text-gray)';
+      configLink.style.textDecoration = 'underline';
+      configLink.textContent = 'Configurar App Discord (GitHub Pages)';
+      configLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        showDiscordClientIdModal();
+      });
+      loginButtons.appendChild(configLink);
+    }
+
     // Initialize LocalStorage structures if missing
     if (!localStorage.getItem('nexus_user')) {
       localStorage.setItem('nexus_user', 'null');
@@ -268,11 +292,380 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('app-container').classList.add('hidden');
     }
 
-    // Render matches immediately
+    // Render matches immediately from cache
     renderMatches();
+
+    // Fetch real-world matches from ESPN via CORS proxy immediately
+    fetchMatchesOffline().then(realMatches => {
+      if (realMatches) {
+        state.matches = realMatches;
+        renderMatches();
+      }
+    }).catch(e => {
+      console.warn('Falha ao obter partidas reais do ESPN no arranque offline:', e.message);
+    });
+
+    // Poll real-world ESPN matches every 60 seconds
+    setInterval(async () => {
+      try {
+        const realMatches = await fetchMatchesOffline();
+        if (realMatches) {
+          detectGoalUpdates(state.matches, realMatches);
+          detectOddsVariation(state.matches, realMatches);
+          state.matches = realMatches;
+          renderMatches();
+          updateSlipOddsLive();
+        }
+      } catch (e) {
+        console.warn('Falha ao atualizar partidas reais do ESPN offline:', e.message);
+      }
+    }, 60000);
 
     // Run client-side Live Simulator
     startLocalSimulator();
+  }
+
+  // --- CLIENT-SIDE DISCORD OAUTH (IMPLICIT GRANT) HELPERS ---
+  async function handleDiscordCallbackHash() {
+    const hash = window.location.hash;
+    if (hash && hash.includes('access_token=')) {
+      const params = new URLSearchParams(hash.substring(1)); // strip '#'
+      const accessToken = params.get('access_token');
+      
+      if (accessToken) {
+        try {
+          showToast('A obter dados do Discord...', 'info');
+          
+          const response = await fetch('https://discord.com/api/users/@me', {
+            headers: {
+              'Authorization': `Bearer ${accessToken}`
+            }
+          });
+          
+          if (!response.ok) {
+            throw new Error('Falha ao obter perfil do Discord');
+          }
+          
+          const userData = await response.json();
+          
+          const discordId = userData.id;
+          const username = userData.global_name || userData.username;
+          const avatar = userData.avatar 
+            ? `https://cdn.discordapp.com/avatars/${discordId}/${userData.avatar}.png`
+            : `https://cdn.discordapp.com/embed/avatars/${parseInt(userData.discriminator || '0') % 5}.png`;
+
+          // Load current local user or initialize
+          let localUser = JSON.parse(localStorage.getItem('nexus_user'));
+          if (!localUser || localUser.discord_id !== discordId) {
+            localUser = {
+              id: 'local_' + discordId,
+              discord_id: discordId,
+              username,
+              avatar,
+              balance: 0, // start with 0 €
+              xp: 0,
+              level: 1,
+              roles: [],
+              coupons: [],
+              wins: 0,
+              losses: 0,
+              last_daily_claim: null,
+              last_sync: null
+            };
+            localStorage.setItem('nexus_user', JSON.stringify(localUser));
+            createLocalTransaction('initial_balance', 0, 'Saldo inicial de Euros');
+          } else {
+            // Update profile
+            localUser.username = username;
+            localUser.avatar = avatar;
+            localStorage.setItem('nexus_user', JSON.stringify(localUser));
+          }
+          
+          state.user = localUser;
+          
+          // Clear hash in url
+          window.history.replaceState(null, null, window.location.pathname);
+          showToast('Login com Discord efetuado com sucesso!', 'success');
+        } catch (err) {
+          console.error('Erro ao processar callback do Discord:', err);
+          showToast('Falha no login com o Discord.', 'error');
+        }
+      }
+    }
+  }
+
+  function showDiscordClientIdModal() {
+    if (document.getElementById('discord-config-modal')) return;
+
+    const currentOrigin = window.location.origin + window.location.pathname;
+    
+    const modal = document.createElement('div');
+    modal.id = 'discord-config-modal';
+    modal.className = 'win-modal-overlay';
+    modal.style.position = 'fixed';
+    modal.style.top = '0';
+    modal.style.left = '0';
+    modal.style.width = '100%';
+    modal.style.height = '100%';
+    modal.style.backgroundColor = 'rgba(0,0,0,0.85)';
+    modal.style.display = 'flex';
+    modal.style.alignItems = 'center';
+    modal.style.justifyContent = 'center';
+    modal.style.zIndex = '10000';
+    modal.style.padding = '20px';
+    
+    modal.innerHTML = `
+      <div class="win-modal-card" style="max-width: 500px; text-align: left; background: #1a1a24; border: 1px solid var(--betclic-red); padding: 25px; border-radius: 8px; box-shadow: 0 0 30px rgba(230,0,0,0.25); color: #fff; width: 100%;">
+        <h3 style="color: var(--betclic-red); font-size: 1.5rem; margin-bottom: 15px; display: flex; align-items: center; gap: 10px; font-weight:700;">
+          <i data-lucide="settings"></i> Configuração Discord (Static Host)
+        </h3>
+        <p style="font-size: 0.9rem; line-height: 1.5; color: var(--text-gray); margin-bottom: 15px;">
+          Para ativar a autenticação do Discord no GitHub Pages, precisas de usar a tua própria aplicação Discord no <strong>Discord Developer Portal</strong>.
+        </p>
+        
+        <div style="background: rgba(0,0,0,0.3); border-left: 3px solid var(--betclic-red); padding: 10px 15px; border-radius: 4px; font-size: 0.85rem; margin-bottom: 20px; color: var(--text-gray);">
+          <strong style="display:block; margin-bottom:5px; color:#fff;">Passo a Passo:</strong>
+          <ol style="margin-left: 15px; display: flex; flex-direction: column; gap: 5px; padding-left: 0;">
+            <li>Cria uma aplicação em <a href="https://discord.com/developers/applications" target="_blank" style="color: var(--betclic-red); text-decoration: underline;">discord.com/developers/applications</a>.</li>
+            <li>No menu <strong>OAuth2</strong>, clica em <strong>Add Redirect</strong> e insere:<br>
+                <code style="background: rgba(255,255,255,0.1); padding: 2px 5px; border-radius: 3px; display: inline-block; margin-top: 3px; color: #fff; word-break: break-all;">${currentOrigin}</code>
+            </li>
+            <li>Cria o redirect e clica em <strong>Save Changes</strong> no fundo.</li>
+            <li>Copia o teu <strong>Client ID</strong> (no menu <i>OAuth2</i>) e insere-o abaixo:</li>
+          </ol>
+        </div>
+
+        <div style="margin-bottom: 20px;">
+          <label style="display:block; font-size:0.8rem; text-transform:uppercase; margin-bottom: 8px; color: var(--text-gray); font-weight:700;">Client ID do Discord:</label>
+          <input type="text" id="discord-client-id-input" class="stake-input" placeholder="Ex: 123456789012345678" style="width: 100%; text-align: center; font-weight: 700; background: #0f0f15; border: 1px solid #333; color:#fff; padding: 10px; border-radius:4px;">
+        </div>
+
+        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+          <button class="btn btn-outline" id="close-discord-config-btn" style="flex: 1; border: 1px solid #444; background: transparent; color:#fff; cursor:pointer; padding:10px; border-radius:4px;">Cancelar</button>
+          <button class="btn btn-gold" id="save-discord-config-btn" style="flex: 1; border: none; background: var(--betclic-red); color:#fff; cursor:pointer; padding:10px; border-radius:4px; font-weight:700;">Guardar & Entrar</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+    initIcons();
+
+    document.getElementById('close-discord-config-btn').addEventListener('click', () => {
+      modal.remove();
+    });
+
+    document.getElementById('save-discord-config-btn').addEventListener('click', () => {
+      const clientId = document.getElementById('discord-client-id-input').value.trim();
+      if (!clientId || !/^\d{17,19}$/.test(clientId)) {
+        showToast('Client ID do Discord inválido! Deve conter apenas entre 17 a 19 dígitos.', 'error');
+        return;
+      }
+
+      localStorage.setItem('discord_client_id', clientId);
+      modal.remove();
+      redirectToDiscordOAuth(clientId);
+    });
+  }
+
+  function redirectToDiscordOAuth(clientId) {
+    const currentOrigin = window.location.origin + window.location.pathname;
+    const discordAuthUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(currentOrigin)}&response_type=token&scope=identify`;
+    window.location.href = discordAuthUrl;
+  }
+
+  // --- CLIENT-SIDE ESPN SCOREBOARD FETCHING (CORS PROXY) HELPERS ---
+  async function fetchMatchesOffline() {
+    const url = 'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard';
+    
+    // Attempt 1: corsproxy.io
+    try {
+      const response = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`);
+      if (response.ok) {
+        const json = await response.json();
+        return processESPNScoreboard(json);
+      }
+    } catch (e) {
+      console.warn('corsproxy.io falhou, a tentar allorigins...');
+    }
+
+    // Attempt 2: allorigins.win
+    try {
+      const response = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`);
+      if (response.ok) {
+        const json = await response.json();
+        return processESPNScoreboard(json);
+      }
+    } catch (e) {
+      console.warn('allorigins.win falhou.');
+    }
+    
+    throw new Error('Todos os proxies CORS falharam.');
+  }
+
+  function processESPNScoreboard(json) {
+    const events = json.events || [];
+    const competitionName = json.leagues && json.leagues[0] ? json.leagues[0].name : 'FIFA World Cup';
+    
+    let localMatches = JSON.parse(localStorage.getItem('nexus_matches') || '[]');
+    let updatedMatches = [];
+    
+    events.forEach(event => {
+      const matchId = 'espn_' + event.id;
+      const comp = event.competitions && event.competitions[0];
+      if (!comp) return;
+
+      const homeCompetitor = comp.competitors.find(c => c.homeAway === 'home');
+      const awayCompetitor = comp.competitors.find(c => c.homeAway === 'away');
+      if (!homeCompetitor || !awayCompetitor) return;
+
+      const homeTeam = homeCompetitor.team.displayName;
+      const awayTeam = awayCompetitor.team.displayName;
+      const homeLogo = homeCompetitor.team.logo || 'https://flagsapi.com/US/flat/64.png';
+      const awayLogo = awayCompetitor.team.logo || 'https://flagsapi.com/US/flat/64.png';
+
+      let status = 'scheduled';
+      const state = event.status.type.state;
+      if (state === 'in') {
+        status = 'live';
+      } else if (state === 'post') {
+        status = 'finished';
+      }
+
+      const scoreHome = parseInt(homeCompetitor.score) || 0;
+      const scoreAway = parseInt(awayCompetitor.score) || 0;
+      const minute = event.status.clock ? Math.floor(event.status.clock / 60) : (status === 'live' ? 45 : 0);
+
+      const existing = localMatches.find(m => m.id === matchId);
+      let baseOdds = existing ? existing.baseOdds || existing.odds : null;
+      if (!baseOdds) {
+        const homeStrength = 1.2 + Math.random() * 2;
+        const awayStrength = 1.2 + Math.random() * 3;
+        baseOdds = {
+          win_home: parseFloat(Math.max(1.10, homeStrength).toFixed(2)),
+          draw: parseFloat((2.8 + Math.random() * 1.5).toFixed(2)),
+          win_away: parseFloat(Math.max(1.20, awayStrength).toFixed(2)),
+          over_2_5: parseFloat((1.5 + Math.random() * 0.9).toFixed(2)),
+          under_2_5: parseFloat((1.4 + Math.random() * 0.9).toFixed(2))
+        };
+      }
+
+      let odds = { ...baseOdds };
+      if (status === 'live') {
+        odds = calculateLiveOddsLocal(scoreHome, scoreAway, minute, baseOdds);
+      }
+
+      const matchObj = {
+        id: matchId,
+        home_team: homeTeam,
+        away_team: awayTeam,
+        home_logo: homeLogo,
+        away_logo: awayLogo,
+        status: status,
+        minute: minute,
+        score_home: scoreHome,
+        score_away: scoreAway,
+        competition: competitionName,
+        date: event.date.split('T')[0],
+        time: event.date.split('T')[1].slice(0, 5),
+        baseOdds: baseOdds,
+        odds: odds
+      };
+
+      updatedMatches.push(matchObj);
+      
+      // Settle local bets if finished and was pending
+      if (status === 'finished' && existing && existing.status !== 'finished') {
+        settleLocalBetsForMatch(matchId, scoreHome, scoreAway);
+      }
+    });
+
+    // Also preserve mock live matches if any are currently running (to not break offline test rotation)
+    localMatches.forEach(m => {
+      if (m.id.startsWith('local_live_') || m.id.startsWith('wc_')) {
+        if (!updatedMatches.some(um => um.id === m.id)) {
+          updatedMatches.push(m);
+        }
+      }
+    });
+
+    localStorage.setItem('nexus_matches', JSON.stringify(updatedMatches));
+    return updatedMatches;
+  }
+
+  function calculateLiveOddsLocal(scoreHome, scoreAway, minute, baseOdds) {
+    const timeRemainingFactor = Math.max(0, (90 - minute) / 90);
+    let odds = { ...baseOdds };
+
+    const goalDiff = scoreHome - scoreAway;
+    if (goalDiff > 0) {
+      odds.win_home = parseFloat(Math.max(1.02, 1.1 + (timeRemainingFactor * 0.5) / goalDiff).toFixed(2));
+      odds.win_away = parseFloat(Math.min(50.00, 3.0 + (1 / (timeRemainingFactor + 0.01)) * goalDiff * 2.5).toFixed(2));
+      odds.draw = parseFloat(Math.min(15.00, 2.2 + (1 / (timeRemainingFactor + 0.01)) * goalDiff * 1.5).toFixed(2));
+    } else if (goalDiff < 0) {
+      odds.win_away = parseFloat(Math.max(1.02, 1.1 + (timeRemainingFactor * 0.5) / Math.abs(goalDiff)).toFixed(2));
+      odds.win_home = parseFloat(Math.min(50.00, 3.0 + (1 / (timeRemainingFactor + 0.01)) * Math.abs(goalDiff * 2.5).toFixed(2));
+      odds.draw = parseFloat(Math.min(15.00, 2.2 + (1 / (timeRemainingFactor + 0.01)) * Math.abs(goalDiff * 1.5).toFixed(2));
+    } else {
+      odds.win_home = parseFloat((1.8 + timeRemainingFactor * 1.2).toFixed(2));
+      odds.win_away = parseFloat((2.5 + timeRemainingFactor * 1.5).toFixed(2));
+      odds.draw = parseFloat(Math.max(1.10, 1.4 + timeRemainingFactor * 2.0).toFixed(2));
+    }
+    return odds;
+  }
+
+  function settleLocalBetsForMatch(matchId, scoreHome, scoreAway) {
+    let localBets = JSON.parse(localStorage.getItem('nexus_bets') || '[]');
+    let localUser = JSON.parse(localStorage.getItem('nexus_user'));
+    let localTxs = JSON.parse(localStorage.getItem('nexus_transactions') || '[]');
+    let userChanged = false;
+
+    const matchBets = localBets.filter(b => b.match_id === matchId && b.status === 'pending');
+    matchBets.forEach(bet => {
+      let isWin = false;
+      if (bet.type === '1' && scoreHome > scoreAway) isWin = true;
+      else if (bet.type === 'X' && scoreHome === scoreAway) isWin = true;
+      else if (bet.type === '2' && scoreHome < scoreAway) isWin = true;
+
+      const idx = localBets.findIndex(b => b.id === bet.id);
+      if (idx !== -1) {
+        localBets[idx].status = isWin ? 'won' : 'lost';
+        localBets[idx].settled_at = new Date().toISOString();
+      }
+
+      if (isWin && localUser) {
+        userChanged = true;
+        localUser.balance += Math.floor(bet.potential_win);
+        localUser.wins += 1;
+        localUser.xp += Math.floor(bet.potential_win * 0.05) + 20;
+        localUser.level = Math.floor(localUser.xp / 100) + 1;
+
+        localTxs.unshift({
+          id: localTxs.length + 1,
+          user_id: localUser.id,
+          type: 'bet_win',
+          amount: Math.floor(bet.potential_win),
+          description: `Ganhos da aposta #${bet.id} (Real-World Match)`,
+          timestamp: new Date().toISOString()
+        });
+      } else if (!isWin && localUser) {
+        userChanged = true;
+        localUser.losses += 1;
+        localUser.xp += 5;
+        localUser.level = Math.floor(localUser.xp / 100) + 1;
+      }
+    });
+
+    if (userChanged && localUser) {
+      localStorage.setItem('nexus_user', JSON.stringify(localUser));
+      localStorage.setItem('nexus_transactions', JSON.stringify(localTxs));
+      state.user = localUser;
+      updateHeaderUI();
+      if (state.activeScreen === 'stats') renderProfilePage(localTxs);
+    }
+
+    localStorage.setItem('nexus_bets', JSON.stringify(localBets));
+    state.bets = localBets;
+    detectNewWins(localBets);
   }
 
   // --- EVENTS & SCREEN NAVIGATION ---
@@ -338,11 +731,16 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
-    // Discord link click (warn if offline)
+    // Discord link click (implicit grant flow for static mode)
     document.getElementById('login-discord-link').addEventListener('click', (e) => {
       if (state.isLocalMode) {
         e.preventDefault();
-        showToast('Integração real necessita que corra o Servidor Node! Use "Simular Conta Discord" offline.', 'error');
+        const clientId = localStorage.getItem('discord_client_id');
+        if (clientId) {
+          redirectToDiscordOAuth(clientId);
+        } else {
+          showDiscordClientIdModal();
+        }
       }
     });
 
@@ -1414,7 +1812,7 @@ document.addEventListener('DOMContentLoaded', () => {
       let localUser = JSON.parse(localStorage.getItem('nexus_user'));
       let localTxs = JSON.parse(localStorage.getItem('nexus_transactions') || '[]');
 
-      const liveMatches = localMatches.filter(m => m.status === 'live');
+      const liveMatches = localMatches.filter(m => m.status === 'live' && !m.id.startsWith('espn_'));
       let matchesChanged = false;
       let userChanged = false;
 
